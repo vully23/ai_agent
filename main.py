@@ -5,6 +5,7 @@ from google import genai
 from google.genai import types
 from prompts import system_prompt
 from call_function import available_functions, call_function
+from config import MAX_ITERS
 
 def main():
     load_dotenv()
@@ -23,16 +24,39 @@ def main():
     client = genai.Client(api_key=api_key)
     
     messages = [types.Content(role="user", parts=[types.Part(text=user_prompt)])]
+
+    iterations = 0
+    while True:
+        iterations += 1
+        if iterations > MAX_ITERS:
+            print("Max iterations reached, exiting.")
+            sys.exit(1)
+        
+        try:
+            final_response = generate_content(client, messages, verbose)
+            if final_response:
+                print("Final response:")
+                print(final_response)
+                break
+        except Exception as e:
+            print(f"Error in generate_content: {e}")
+
+
+def generate_content(client, messages, verbose):
     response = client.models.generate_content(
         model="gemini-2.0-flash-001",
         contents=messages,
         config=types.GenerateContentConfig(
-            tools=[available_functions],
-            system_instruction=system_prompt)
-        )
+            tools=[available_functions], system_instruction=system_prompt
+        ),
+    )
     if verbose:
         print("Prompt tokens:", response.usage_metadata.prompt_token_count)
         print("Response tokens:", response.usage_metadata.candidates_token_count)
+    
+    if response.candidates:
+        for candidate in response.candidates:
+            messages.append(candidate.content)
     if not response.function_calls:
         return response.text
     function_responses = []
@@ -46,6 +70,8 @@ def main():
     
     if not function_responses:
         raise Exception("No function responses generated, exiting.")
+    
+    messages.append(types.Content(role="user", parts=function_responses))
 
 
 if __name__ == "__main__":
